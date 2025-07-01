@@ -1,6 +1,20 @@
 <script>
 import { ref, reactive, computed, onMounted, onUnmounted } from "vue";
 
+// Throttle function for performance
+function throttle(func, limit) {
+  let inThrottle;
+  return function () {
+    const args = arguments;
+    const context = this;
+    if (!inThrottle) {
+      func.apply(context, args);
+      inThrottle = true;
+      setTimeout(() => (inThrottle = false), limit);
+    }
+  };
+}
+
 export default {
   name: "App",
   setup() {
@@ -87,7 +101,13 @@ export default {
     };
 
     const startDrag = (event, node) => {
+      // Only start drag on left mouse button
+      if (event.button !== 0) return;
+
+      event.preventDefault();
       isDragging.value = true;
+      selectedNode.value = node.id;
+
       const rect = event.currentTarget.getBoundingClientRect();
       dragOffset.x = event.clientX - rect.left;
       dragOffset.y = event.clientY - rect.top;
@@ -99,22 +119,37 @@ export default {
     const onMouseMove = (event) => {
       if (!isDragging.value) return;
 
-      const canvas = document.querySelector(".canvas-container");
-      const rect = canvas.getBoundingClientRect();
-      const x = (event.clientX - rect.left - dragOffset.x) / zoom.value;
-      const y = (event.clientY - rect.top - dragOffset.y) / zoom.value;
+      // Use requestAnimationFrame for smooth updates
+      requestAnimationFrame(() => {
+        const canvas = document.querySelector(".canvas-container");
+        const rect = canvas.getBoundingClientRect();
+        const x = (event.clientX - rect.left - dragOffset.x) / zoom.value;
+        const y = (event.clientY - rect.top - dragOffset.y) / zoom.value;
 
-      const selectedNodeData = workflowNodes.value.find(
-        (n) => n.id === selectedNode.value
-      );
-      if (selectedNodeData) {
-        selectedNodeData.x = x;
-        selectedNodeData.y = y;
-        updateConnections();
-      }
+        const selectedNodeData = workflowNodes.value.find(
+          (n) => n.id === selectedNode.value
+        );
+        if (selectedNodeData) {
+          selectedNodeData.x = x;
+          selectedNodeData.y = y;
+          // Use throttled connection update for smooth performance
+          throttledUpdateConnections();
+        }
+      });
     };
 
     const onMouseUp = () => {
+      if (isDragging.value) {
+        // Update connections when dragging ends
+        updateConnections();
+        // Add a small delay to restore smooth transitions
+        setTimeout(() => {
+          const draggedNode = document.querySelector(".workflow-node.dragging");
+          if (draggedNode) {
+            draggedNode.style.transition = "all 0.2s ease";
+          }
+        }, 50);
+      }
       isDragging.value = false;
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
@@ -128,13 +163,17 @@ export default {
         const toNode = workflowNodes.value.find((n) => n.id === connection.to);
 
         if (fromNode && toNode) {
-          connection.x1 = fromNode.x + 150;
-          connection.y1 = fromNode.y + 50;
-          connection.x2 = toNode.x;
-          connection.y2 = toNode.y + 50;
+          // Connect from the right edge of the source node to the left edge of the target node
+          connection.x1 = fromNode.x + 150; // Right edge of source node
+          connection.y1 = fromNode.y + 50; // Middle of source node
+          connection.x2 = toNode.x; // Left edge of target node
+          connection.y2 = toNode.y + 50; // Middle of target node
         }
       });
     };
+
+    // Throttled version for smooth dragging
+    const throttledUpdateConnections = throttle(updateConnections, 16); // ~60fps
 
     const deleteNode = (nodeId) => {
       workflowNodes.value = workflowNodes.value.filter((n) => n.id !== nodeId);
@@ -216,6 +255,7 @@ export default {
     return {
       zoom,
       selectedNode,
+      isDragging,
       availableComponents,
       workflowNodes,
       connections,
@@ -233,6 +273,7 @@ export default {
       loadWorkflow,
       clearWorkflow,
       exportWorkflow,
+      throttledUpdateConnections,
     };
   },
 };
@@ -322,7 +363,10 @@ export default {
             v-for="node in workflowNodes"
             :key="node.id"
             class="workflow-node"
-            :class="{ selected: selectedNode === node.id }"
+            :class="{
+              selected: selectedNode === node.id,
+              dragging: isDragging && selectedNode === node.id,
+            }"
             :style="{
               left: `${node.x}px`,
               top: `${node.y}px`,
@@ -539,6 +583,8 @@ export default {
   cursor: move;
   transition: all 0.2s ease;
   z-index: 10;
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 .workflow-node:hover {
@@ -549,6 +595,16 @@ export default {
 .workflow-node.selected {
   border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
+}
+
+.workflow-node.dragging {
+  border-color: #667eea;
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+  transform: scale(1.05) !important;
+  z-index: 100;
+  cursor: grabbing;
+  transition: none !important;
+  will-change: transform, left, top;
 }
 
 .node-header {
