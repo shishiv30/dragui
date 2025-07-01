@@ -1,5 +1,13 @@
 <script>
 import { ref, reactive, computed, onMounted, onUnmounted } from "vue";
+import DynamicForm from "./components/DynamicForm.vue";
+import {
+  getAvailableComponents,
+  getComponentByType,
+  validateWorkflow,
+  canAddComponent,
+} from "./config/components.js";
+import ComfyUIService from "./services/comfyui.js";
 
 // Throttle function for performance
 function throttle(func, limit) {
@@ -17,24 +25,32 @@ function throttle(func, limit) {
 
 export default {
   name: "App",
+  components: {
+    DynamicForm,
+  },
   setup() {
     const zoom = ref(1);
     const selectedNode = ref(null);
     const isDragging = ref(false);
     const dragOffset = reactive({ x: 0, y: 0 });
 
-    const availableComponents = ref([
-      { id: "start", name: "Start", icon: "▶️", type: "start" },
-      { id: "process", name: "Process", icon: "⚙️", type: "process" },
-      { id: "decision", name: "Decision", icon: "❓", type: "decision" },
-      { id: "action", name: "Action", icon: "🔧", type: "action" },
-      { id: "end", name: "End", icon: "⏹️", type: "end" },
-      { id: "data", name: "Data", icon: "📊", type: "data" },
-    ]);
+    const availableComponents = ref(getAvailableComponents());
 
     const workflowNodes = ref([]);
     const connections = ref([]);
     const nextNodeId = ref(1);
+    const comfyUIService = new ComfyUIService();
+    const isComfyUIConnected = ref(false);
+    const isExecuting = ref(false);
+    const validationErrors = ref([]);
+    const isDraggingFile = ref(false);
+
+    const hasImageUploaded = computed(() => {
+      const uploadNode = workflowNodes.value.find(
+        (n) => n.componentType === "upload"
+      );
+      return !!(uploadNode && uploadNode.formData && uploadNode.formData.image);
+    });
 
     const onDragStart = (event, component) => {
       event.dataTransfer.setData("application/json", JSON.stringify(component));
@@ -44,35 +60,157 @@ export default {
       event.preventDefault();
     };
 
+    const onDragEnter = (event) => {
+      // Check if dragging files
+      if (event.dataTransfer.types.includes("Files")) {
+        isDraggingFile.value = true;
+      }
+    };
+
+    const onDragLeave = (event) => {
+      // Only set to false if leaving the canvas entirely
+      if (!event.currentTarget.contains(event.relatedTarget)) {
+        isDraggingFile.value = false;
+      }
+    };
+
     const onDrop = (event) => {
       event.preventDefault();
-      const componentData = JSON.parse(
-        event.dataTransfer.getData("application/json")
-      );
-      const rect = event.currentTarget.getBoundingClientRect();
-      const x = (event.clientX - rect.left) / zoom.value;
-      const y = (event.clientY - rect.top) / zoom.value;
 
-      addNode(componentData, x, y);
+      // If dragging files, don't try to parse as JSON
+      if (isDraggingFile.value) {
+        isDraggingFile.value = false;
+        return;
+      }
+
+      // Check if we have JSON data (component drag)
+      const jsonData = event.dataTransfer.getData("application/json");
+      if (!jsonData) {
+        return; // No component data, ignore the drop
+      }
+
+      try {
+        const componentData = JSON.parse(jsonData);
+        const rect = event.currentTarget.getBoundingClientRect();
+        const x = (event.clientX - rect.left) / zoom.value;
+        const y = (event.clientY - rect.top) / zoom.value;
+
+        // Check if component can be added
+        const validation = canAddComponent(
+          componentData.id,
+          workflowNodes.value
+        );
+        if (!validation.allowed) {
+          alert(`Cannot add ${componentData.name}: ${validation.reason}`);
+          return;
+        }
+
+        addNode(componentData, x, y);
+        updateValidationErrors();
+      } catch (error) {
+        console.error("Error parsing component data:", error);
+        // Silently ignore invalid drops
+      }
+    };
+
+    const updatePreviewWithWorkflowData = () => {
+      const previewNode = workflowNodes.value.find(
+        (n) => n.componentType === "preview"
+      );
+      if (!previewNode) return;
+      // Get upload node image and metadata
+      const uploadNode = workflowNodes.value.find(
+        (n) => n.componentType === "upload"
+      );
+      if (uploadNode && uploadNode.formData) {
+        previewNode.formData = {
+          ...previewNode.formData,
+          image: uploadNode.formData.image_preview || "",
+          imgmeta: uploadNode.formData.image_meta || {},
+        };
+      }
+      // Gather all filter/repair settings
+      const settings = [];
+      for (const node of workflowNodes.value) {
+        if (
+          node.componentType === "filter" ||
+          node.componentType === "repair"
+        ) {
+          const config = getComponentByType(node.componentType);
+          if (config && config.fields) {
+            for (const key in config.fields) {
+              if (Object.prototype.hasOwnProperty.call(node.formData, key)) {
+                settings.push({
+                  key,
+                  value: node.formData[key],
+                  label: config.fields[key].label,
+                  type: node.componentType,
+                });
+              }
+            }
+          }
+        }
+      }
+      previewNode.formData.settings = settings;
     };
 
     const addNode = (componentData, x, y) => {
+      const componentConfig = getComponentByType(componentData.id);
+      const initialFormData = {};
+      if (componentConfig && componentConfig.fields) {
+        Object.keys(componentConfig.fields).forEach((key) => {
+          const field = componentConfig.fields[key];
+          if (field.defaultValue !== undefined) {
+            initialFormData[key] = field.defaultValue;
+          } else if (field.type === "object") {
+            initialFormData[key] = {};
+          } else {
+            initialFormData[key] = "";
+          }
+        });
+      }
       const newNode = {
         id: `node-${nextNodeId.value++}`,
         name: componentData.name,
         icon: componentData.icon,
         type: componentData.type,
-        x: x - 75, // Center the node
+        componentType: componentData.id,
+        x: x - 75,
         y: y - 50,
+        formData: initialFormData,
+        expanded: true,
       };
-
+      // If adding repair/filter and preview exists, insert before preview
+      if (componentData.id === "repair" || componentData.id === "filter") {
+        const previewIdx = workflowNodes.value.findIndex(
+          (n) => n.componentType === "preview"
+        );
+        if (previewIdx !== -1) {
+          workflowNodes.value.splice(previewIdx, 0, newNode);
+          // Remove all connections to preview
+          connections.value = connections.value.filter(
+            (c) => c.to !== workflowNodes.value[previewIdx + 1].id
+          );
+          // Connect new node after previous node (or upload if first)
+          const prevNode = workflowNodes.value[previewIdx - 1];
+          if (prevNode) {
+            addConnectionBetweenNodes(prevNode.id, newNode.id);
+          }
+          // Connect new node to preview
+          addConnectionBetweenNodes(
+            newNode.id,
+            workflowNodes.value[previewIdx + 1].id
+          );
+          return;
+        }
+      }
       workflowNodes.value.push(newNode);
-
-      // Connect to previous node if exists
       if (workflowNodes.value.length > 1) {
         const prevNode = workflowNodes.value[workflowNodes.value.length - 2];
         addConnectionBetweenNodes(prevNode.id, newNode.id);
       }
+      // After adding node, update preview with workflow data
+      setTimeout(updatePreviewWithWorkflowData, 0);
     };
 
     const addConnectionBetweenNodes = (fromId, toId) => {
@@ -103,6 +241,18 @@ export default {
     const startDrag = (event, node) => {
       // Only start drag on left mouse button
       if (event.button !== 0) return;
+
+      // Don't start drag if clicking on form elements
+      if (
+        event.target.closest(".dynamic-form") ||
+        event.target.closest(".node-form") ||
+        event.target.tagName === "INPUT" ||
+        event.target.tagName === "TEXTAREA" ||
+        event.target.tagName === "SELECT" ||
+        event.target.tagName === "BUTTON"
+      ) {
+        return;
+      }
 
       event.preventDefault();
       isDragging.value = true;
@@ -183,6 +333,7 @@ export default {
       if (selectedNode.value === nodeId) {
         selectedNode.value = null;
       }
+      updateValidationErrors();
     };
 
     const zoomIn = () => {
@@ -224,6 +375,7 @@ export default {
         connections.value = [];
         selectedNode.value = null;
         nextNodeId.value = 1;
+        validationErrors.value = [];
       }
     };
 
@@ -247,6 +399,86 @@ export default {
       console.log(`Adding ${type} connection to node ${nodeId}`);
     };
 
+    const updateNodeFormData = (nodeId, formData) => {
+      const node = workflowNodes.value.find((n) => n.id === nodeId);
+      if (node) {
+        node.formData = { ...node.formData, ...formData };
+        // If preview, filter, or repair node is updated, update preview with workflow data
+        if (
+          node.componentType === "preview" ||
+          node.componentType === "filter" ||
+          node.componentType === "repair" ||
+          node.componentType === "upload"
+        ) {
+          setTimeout(updatePreviewWithWorkflowData, 0);
+        }
+      }
+    };
+
+    const toggleNodeExpansion = (nodeId) => {
+      const node = workflowNodes.value.find((n) => n.id === nodeId);
+      if (node) {
+        node.expanded = !node.expanded;
+      }
+    };
+
+    const checkComfyUIConnection = async () => {
+      try {
+        isComfyUIConnected.value = await comfyUIService.checkConnection();
+      } catch (error) {
+        isComfyUIConnected.value = false;
+      }
+    };
+
+    const updateValidationErrors = () => {
+      validationErrors.value = validateWorkflow(workflowNodes.value);
+    };
+
+    const executeWorkflow = async () => {
+      // Update validation errors
+      updateValidationErrors();
+
+      if (validationErrors.value.length > 0) {
+        alert(
+          `Workflow validation errors:\n${validationErrors.value.join("\n")}`
+        );
+        return;
+      }
+
+      if (workflowNodes.value.length === 0) {
+        alert("Please add some nodes to the workflow first.");
+        return;
+      }
+
+      if (!isComfyUIConnected.value) {
+        alert(
+          "ComfyUI is not connected. Please make sure ComfyUI is running on http://127.0.0.1:8188"
+        );
+        return;
+      }
+
+      try {
+        isExecuting.value = true;
+        const result = await comfyUIService.executeWorkflow(
+          workflowNodes.value,
+          connections.value
+        );
+        alert("Workflow executed successfully! Check ComfyUI for results.");
+        console.log("Workflow result:", result);
+      } catch (error) {
+        alert(`Error executing workflow: ${error.message}`);
+        console.error("Workflow execution error:", error);
+      } finally {
+        isExecuting.value = false;
+      }
+    };
+
+    onMounted(() => {
+      checkComfyUIConnection();
+      // Check connection every 30 seconds
+      setInterval(checkComfyUIConnection, 30000);
+    });
+
     onUnmounted(() => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
@@ -256,6 +488,9 @@ export default {
       zoom,
       selectedNode,
       isDragging,
+      isComfyUIConnected,
+      isExecuting,
+      validationErrors,
       availableComponents,
       workflowNodes,
       connections,
@@ -273,7 +508,12 @@ export default {
       loadWorkflow,
       clearWorkflow,
       exportWorkflow,
+      executeWorkflow,
       throttledUpdateConnections,
+      updateNodeFormData,
+      toggleNodeExpansion,
+      getComponentByType,
+      hasImageUploaded,
     };
   },
 };
@@ -290,6 +530,14 @@ export default {
           <button class="menu-btn" @click="loadWorkflow">Load</button>
           <button class="menu-btn" @click="clearWorkflow">Clear</button>
           <button class="menu-btn" @click="exportWorkflow">Export</button>
+          <button
+            class="menu-btn run-btn"
+            :class="{ connected: isComfyUIConnected, executing: isExecuting }"
+            @click="executeWorkflow"
+            :disabled="isExecuting"
+          >
+            {{ isExecuting ? "Running..." : "Run Workflow" }}
+          </button>
         </nav>
       </div>
     </header>
@@ -304,8 +552,23 @@ export default {
             v-for="component in availableComponents"
             :key="component.id"
             class="component-item"
-            draggable="true"
-            @dragstart="onDragStart($event, component)"
+            :class="{
+              disabled:
+                (component.id === 'repair' || component.id === 'filter') &&
+                !hasImageUploaded,
+            }"
+            :draggable="
+              !(
+                (component.id === 'repair' || component.id === 'filter') &&
+                !hasImageUploaded
+              )
+            "
+            @dragstart="
+              (component.id === 'repair' || component.id === 'filter') &&
+              !hasImageUploaded
+                ? null
+                : onDragStart($event, component)
+            "
           >
             <div class="component-icon">{{ component.icon }}</div>
             <span class="component-name">{{ component.name }}</span>
@@ -316,7 +579,15 @@ export default {
       <!-- Main Workspace -->
       <main class="workspace">
         <div class="workspace-header">
-          <h2>Workflow Canvas</h2>
+          <div class="workspace-title">
+            <h2>Workflow Canvas</h2>
+            <div v-if="validationErrors.length > 0" class="validation-errors">
+              <span class="error-icon">⚠️</span>
+              <span class="error-count"
+                >{{ validationErrors.length }} validation error(s)</span
+              >
+            </div>
+          </div>
           <div class="workspace-controls">
             <button class="control-btn" @click="zoomIn">+</button>
             <button class="control-btn" @click="zoomOut">-</button>
@@ -329,6 +600,8 @@ export default {
           @dragover="onDragOver"
           @drop="onDrop"
           @click="deselectAll"
+          @dragenter="onDragEnter"
+          @dragleave="onDragLeave"
         >
           <svg
             class="connection-lines"
@@ -366,6 +639,7 @@ export default {
             :class="{
               selected: selectedNode === node.id,
               dragging: isDragging && selectedNode === node.id,
+              expanded: node.expanded,
             }"
             :style="{
               left: `${node.x}px`,
@@ -378,10 +652,48 @@ export default {
             <div class="node-header">
               <span class="node-icon">{{ node.icon }}</span>
               <span class="node-title">{{ node.name }}</span>
-              <button class="node-delete" @click.stop="deleteNode(node.id)">
-                ×
-              </button>
+              <div class="node-controls">
+                <button
+                  class="node-expand"
+                  @click.stop="toggleNodeExpansion(node.id)"
+                  :title="node.expanded ? 'Collapse' : 'Expand'"
+                >
+                  {{ node.expanded ? "−" : "+" }}
+                </button>
+                <button class="node-delete" @click.stop="deleteNode(node.id)">
+                  ×
+                </button>
+              </div>
             </div>
+
+            <!-- Dynamic Form -->
+            <div
+              v-if="node.expanded"
+              class="node-form"
+              @mousedown.stop
+              @click.stop
+            >
+              <DynamicForm
+                :fields="getComponentByType(node.componentType)?.fields || {}"
+                :model-value="node.formData"
+                @update:model-value="
+                  (formData) => updateNodeFormData(node.id, formData)
+                "
+              />
+              <!-- Debug info -->
+              <div
+                class="debug-info"
+                style="font-size: 10px; color: #666; padding: 5px"
+              >
+                Type: {{ node.componentType }} | Fields:
+                {{
+                  Object.keys(
+                    getComponentByType(node.componentType)?.fields || {}
+                  ).length
+                }}
+              </div>
+            </div>
+
             <div class="node-content">
               <div
                 class="node-input"
@@ -451,6 +763,27 @@ export default {
 .menu-btn:hover {
   background: rgba(255, 255, 255, 0.3);
   transform: translateY(-1px);
+}
+
+.run-btn {
+  background: rgba(220, 53, 69, 0.2);
+  border-color: rgba(220, 53, 69, 0.3);
+}
+
+.run-btn.connected {
+  background: rgba(40, 167, 69, 0.2);
+  border-color: rgba(40, 167, 69, 0.3);
+}
+
+.run-btn.executing {
+  background: rgba(255, 193, 7, 0.2);
+  border-color: rgba(255, 193, 7, 0.3);
+  cursor: not-allowed;
+}
+
+.run-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .main-container {
@@ -527,9 +860,32 @@ export default {
   border-bottom: 1px solid #e9ecef;
 }
 
+.workspace-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .workspace-header h2 {
   margin: 0;
   color: #495057;
+}
+
+.validation-errors {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #dc3545;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.error-icon {
+  font-size: 1.1rem;
+}
+
+.error-count {
+  color: #dc3545;
 }
 
 .workspace-controls {
@@ -617,6 +973,33 @@ export default {
   border-radius: 10px 10px 0 0;
 }
 
+.node-controls {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.node-expand {
+  background: #28a745;
+  color: white;
+  border: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.node-expand:hover {
+  background: #218838;
+  transform: scale(1.1);
+}
+
 .node-icon {
   font-size: 1.2rem;
 }
@@ -647,6 +1030,19 @@ export default {
 .node-delete:hover {
   background: #c82333;
   transform: scale(1.1);
+}
+
+.node-form {
+  border-bottom: 1px solid #e9ecef;
+  background: white;
+  max-height: 300px;
+  overflow-y: auto;
+  pointer-events: auto;
+}
+
+.workflow-node.expanded {
+  width: 300px;
+  z-index: 20;
 }
 
 .node-content {
@@ -718,5 +1114,11 @@ export default {
   .workspace-controls {
     justify-content: center;
   }
+}
+
+.component-item.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
 }
 </style>
