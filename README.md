@@ -48,6 +48,26 @@ Preview the production build:
 npm run preview
 ```
 
+### Deployment
+
+#### GitHub Pages (Recommended)
+
+1. Push your code to GitHub
+2. Enable GitHub Pages in your repository settings
+3. Set the source to "GitHub Actions"
+4. The workflow will automatically build and deploy on every push to main
+
+#### Manual Deployment
+
+Deploy to GitHub Pages manually:
+```bash
+npm run deploy
+```
+
+## Live Demo
+
+Visit the live demo: [https://yourusername.github.io/dragui/](https://yourusername.github.io/dragui/)
+
 ## How to Use
 
 ### Creating a Workflow
