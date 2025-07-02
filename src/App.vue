@@ -45,6 +45,11 @@ export default {
     const validationErrors = ref([]);
     const isDraggingFile = ref(false);
 
+    // Mobile drag and drop support
+    const isMobileDragActive = ref(false);
+    const mobileDragData = ref(null);
+    const mobileDragElement = ref(null);
+
     const hasImageUploaded = computed(() => {
       const uploadNode = workflowNodes.value.find(
         (n) => n.componentType === "upload"
@@ -54,6 +59,101 @@ export default {
 
     const onDragStart = (event, component) => {
       event.dataTransfer.setData("application/json", JSON.stringify(component));
+    };
+
+    // Mobile touch handlers
+    const onTouchStart = (event, component) => {
+      // Prevent default to avoid scrolling
+      event.preventDefault();
+
+      // Check if component is disabled
+      if (
+        (component.id === "repair" || component.id === "filter") &&
+        !hasImageUploaded.value
+      ) {
+        return;
+      }
+
+      isMobileDragActive.value = true;
+      mobileDragData.value = component;
+      mobileDragElement.value = event.currentTarget;
+
+      // Add visual feedback
+      event.currentTarget.style.opacity = "0.5";
+      event.currentTarget.style.transform = "scale(1.1)";
+
+      // Add touch move and end listeners
+      document.addEventListener("touchmove", onTouchMove, { passive: false });
+      document.addEventListener("touchend", onTouchEnd);
+    };
+
+    const onTouchMove = (event) => {
+      if (!isMobileDragActive.value) return;
+
+      // Prevent scrolling while dragging
+      event.preventDefault();
+
+      // Update drag element position for visual feedback
+      if (mobileDragElement.value) {
+        const touch = event.touches[0];
+        mobileDragElement.value.style.position = "fixed";
+        mobileDragElement.value.style.left = touch.clientX - 75 + "px";
+        mobileDragElement.value.style.top = touch.clientY - 25 + "px";
+        mobileDragElement.value.style.zIndex = "9999";
+        mobileDragElement.value.style.pointerEvents = "none";
+      }
+    };
+
+    const onTouchEnd = (event) => {
+      if (!isMobileDragActive.value) return;
+
+      // Find drop target
+      const touch = event.changedTouches[0];
+      const dropTarget = document.elementFromPoint(
+        touch.clientX,
+        touch.clientY
+      );
+
+      // Check if dropping on canvas
+      const canvasContainer = dropTarget?.closest(".canvas-container");
+      if (canvasContainer && mobileDragData.value) {
+        const rect = canvasContainer.getBoundingClientRect();
+        const x = (touch.clientX - rect.left) / zoom.value;
+        const y = (touch.clientY - rect.top) / zoom.value;
+
+        // Check if component can be added
+        const validation = canAddComponent(
+          mobileDragData.value.id,
+          workflowNodes.value
+        );
+        if (!validation.allowed) {
+          alert(
+            `Cannot add ${mobileDragData.value.name}: ${validation.reason}`
+          );
+        } else {
+          addNode(mobileDragData.value, x, y);
+          updateValidationErrors();
+        }
+      }
+
+      // Clean up
+      if (mobileDragElement.value) {
+        mobileDragElement.value.style.opacity = "";
+        mobileDragElement.value.style.transform = "";
+        mobileDragElement.value.style.position = "";
+        mobileDragElement.value.style.left = "";
+        mobileDragElement.value.style.top = "";
+        mobileDragElement.value.style.zIndex = "";
+        mobileDragElement.value.style.pointerEvents = "";
+      }
+
+      isMobileDragActive.value = false;
+      mobileDragData.value = null;
+      mobileDragElement.value = null;
+
+      // Remove event listeners
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
     };
 
     const onDragOver = (event) => {
@@ -239,8 +339,11 @@ export default {
     };
 
     const startDrag = (event, node) => {
-      // Only start drag on left mouse button
-      if (event.button !== 0) return;
+      // Handle both mouse and touch events
+      const isTouch = event.type === "touchstart";
+
+      // Only start drag on left mouse button for mouse events
+      if (!isTouch && event.button !== 0) return;
 
       // Don't start drag if clicking on form elements
       if (
@@ -259,11 +362,21 @@ export default {
       selectedNode.value = node.id;
 
       const rect = event.currentTarget.getBoundingClientRect();
-      dragOffset.x = event.clientX - rect.left;
-      dragOffset.y = event.clientY - rect.top;
+      const clientX = isTouch ? event.touches[0].clientX : event.clientX;
+      const clientY = isTouch ? event.touches[0].clientY : event.clientY;
 
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
+      dragOffset.x = clientX - rect.left;
+      dragOffset.y = clientY - rect.top;
+
+      if (isTouch) {
+        document.addEventListener("touchmove", onTouchMoveNode, {
+          passive: false,
+        });
+        document.addEventListener("touchend", onTouchEndNode);
+      } else {
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+      }
     };
 
     const onMouseMove = (event) => {
@@ -303,6 +416,49 @@ export default {
       isDragging.value = false;
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    const onTouchMoveNode = (event) => {
+      if (!isDragging.value) return;
+
+      // Prevent scrolling while dragging
+      event.preventDefault();
+
+      // Use requestAnimationFrame for smooth updates
+      requestAnimationFrame(() => {
+        const canvas = document.querySelector(".canvas-container");
+        const rect = canvas.getBoundingClientRect();
+        const touch = event.touches[0];
+        const x = (touch.clientX - rect.left - dragOffset.x) / zoom.value;
+        const y = (touch.clientY - rect.top - dragOffset.y) / zoom.value;
+
+        const selectedNodeData = workflowNodes.value.find(
+          (n) => n.id === selectedNode.value
+        );
+        if (selectedNodeData) {
+          selectedNodeData.x = x;
+          selectedNodeData.y = y;
+          // Use throttled connection update for smooth performance
+          throttledUpdateConnections();
+        }
+      });
+    };
+
+    const onTouchEndNode = () => {
+      if (isDragging.value) {
+        // Update connections when dragging ends
+        updateConnections();
+        // Add a small delay to restore smooth transitions
+        setTimeout(() => {
+          const draggedNode = document.querySelector(".workflow-node.dragging");
+          if (draggedNode) {
+            draggedNode.style.transition = "all 0.2s ease";
+          }
+        }, 50);
+      }
+      isDragging.value = false;
+      document.removeEventListener("touchmove", onTouchMoveNode);
+      document.removeEventListener("touchend", onTouchEndNode);
     };
 
     const updateConnections = () => {
@@ -473,6 +629,12 @@ export default {
       }
     };
 
+    // Helper: is a component disabled for drag?
+    const isComponentDisabled = (component) => {
+      const result = canAddComponent(component.id, workflowNodes.value);
+      return !result.allowed;
+    };
+
     onMounted(() => {
       checkComfyUIConnection();
       // Check connection every 30 seconds
@@ -482,6 +644,10 @@ export default {
     onUnmounted(() => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("touchmove", onTouchMoveNode);
+      document.removeEventListener("touchend", onTouchEndNode);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
     });
 
     return {
@@ -495,7 +661,10 @@ export default {
       workflowNodes,
       connections,
       onDragStart,
+      onTouchStart,
       onDragOver,
+      onDragEnter,
+      onDragLeave,
       onDrop,
       selectNode,
       deselectAll,
@@ -514,6 +683,7 @@ export default {
       toggleNodeExpansion,
       getComponentByType,
       hasImageUploaded,
+      isComponentDisabled,
     };
   },
 };
@@ -553,21 +723,18 @@ export default {
             :key="component.id"
             class="component-item"
             :class="{
-              disabled:
-                (component.id === 'repair' || component.id === 'filter') &&
-                !hasImageUploaded,
+              disabled: isComponentDisabled(component),
             }"
-            :draggable="
-              !(
-                (component.id === 'repair' || component.id === 'filter') &&
-                !hasImageUploaded
-              )
-            "
+            :draggable="!isComponentDisabled(component)"
             @dragstart="
-              (component.id === 'repair' || component.id === 'filter') &&
-              !hasImageUploaded
+              isComponentDisabled(component)
                 ? null
                 : onDragStart($event, component)
+            "
+            @touchstart="
+              isComponentDisabled(component)
+                ? null
+                : onTouchStart($event, component)
             "
           >
             <div class="component-icon">{{ component.icon }}</div>
@@ -648,6 +815,7 @@ export default {
             }"
             @click.stop="selectNode(node.id)"
             @mousedown="startDrag($event, node)"
+            @touchstart="startDrag($event, node)"
           >
             <div class="node-header">
               <span class="node-icon">{{ node.icon }}</span>
@@ -674,6 +842,7 @@ export default {
               @click.stop
             >
               <DynamicForm
+                :type="node.componentType"
                 :fields="getComponentByType(node.componentType)?.fields || {}"
                 :model-value="node.formData"
                 @update:model-value="
@@ -1079,7 +1248,6 @@ export default {
 
   .component-list {
     width: 100%;
-    height: 120px;
     border-right: none;
     border-bottom: 1px solid #e9ecef;
   }
@@ -1120,5 +1288,40 @@ export default {
   opacity: 0.5;
   pointer-events: none;
   cursor: not-allowed;
+}
+
+/* Mobile touch improvements */
+@media (max-width: 768px) {
+  .component-item {
+    touch-action: none; /* Prevent default touch behaviors */
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .component-item:active {
+    transform: scale(1.05);
+    transition: transform 0.1s ease;
+  }
+
+  /* Prevent text selection during drag */
+  .component-list {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Improve touch targets */
+  .component-item {
+    min-height: 60px;
+    padding: 1rem;
+  }
+
+  .component-icon {
+    font-size: 1.5rem;
+  }
+
+  .component-name {
+    font-size: 1rem;
+  }
 }
 </style>

@@ -90,7 +90,7 @@ export const componentConfig = {
     order: 4, // Must be last
     isFinal: true, // This is the final step
     validation: {
-      requires: ["upload"], // Only requires upload
+      requires: [["filter", "repair"]], // Only requires upload
       requiredBy: [], // Nothing comes after preview
     },
     fields: {
@@ -184,37 +184,28 @@ export const validateWorkflow = (workflowNodes) => {
 
 export const canAddComponent = (componentType, existingNodes) => {
   const config = componentConfig[componentType];
-  if (!config || !config.validation) return true;
-
+  if (!config || !config.validation) return { allowed: true };
+  const requires = config.validation.requires;
+  if (!requires || requires.length === 0) return { allowed: true };
   const existingTypes = existingNodes.map((node) => node.componentType);
 
-  // Only block if preview is the last node and user is trying to add at the end
-  const lastNode = existingNodes[existingNodes.length - 1];
-  if (
-    lastNode &&
-    componentConfig[lastNode.componentType]?.isFinal &&
-    // Only block if not inserting before preview (i.e., only if adding at the end)
-    componentType !== "preview"
-  ) {
-    return {
-      allowed: false,
-      reason: "Cannot add components after the final preview step",
-    };
-  }
-
-  // Check if all required components exist
-  const missingRequirements = config.validation.requires.filter(
-    (requiredType) => !existingTypes.includes(requiredType)
-  );
-
-  if (missingRequirements.length > 0) {
-    return {
-      allowed: false,
-      reason: `Requires: ${missingRequirements
-        .map((type) => componentConfig[type]?.name || type)
-        .join(", ")}`,
-    };
-  }
-
-  return { allowed: true };
+  // Track missing requirements for error message
+  let missing = [];
+  const allPresent = requires.every((req) => {
+    if (Array.isArray(req)) {
+      const anyPresent = req.some((item) => existingTypes.includes(item));
+      if (!anyPresent) missing.push(...req);
+      return anyPresent;
+    }
+    const present = existingTypes.includes(req);
+    if (!present) missing.push(req);
+    return present;
+  });
+  if (allPresent) return { allowed: true };
+  return {
+    allowed: false,
+    reason: `Requires: ${missing
+      .map((type) => componentConfig[type]?.name || type)
+      .join(", ")}`,
+  };
 };
