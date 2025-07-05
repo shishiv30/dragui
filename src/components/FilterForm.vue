@@ -21,7 +21,7 @@
           class="range-slider"
         />
         <span class="range-value">{{
-          modelValue[key] || field.defaultValue
+          (modelValue[key] || field.defaultValue) + "%"
         }}</span>
       </div>
 

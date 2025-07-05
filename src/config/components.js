@@ -41,7 +41,7 @@ export const componentConfig = {
     fields: {
       WB: {
         type: "range",
-        label: "White Balance",
+        label: "White Balance (%)",
         min: -100,
         max: 100,
         step: 1,
@@ -50,7 +50,7 @@ export const componentConfig = {
       },
       exposure: {
         type: "range",
-        label: "Exposure",
+        label: "Exposure (%)",
         min: -100,
         max: 100,
         step: 1,
@@ -73,7 +73,7 @@ export const componentConfig = {
     fields: {
       detail: {
         type: "range",
-        label: "Detail Level",
+        label: "Detail Level (%)",
         min: 0,
         max: 100,
         step: 1,
@@ -141,7 +141,7 @@ export const getAvailableComponents = () => {
 // Validation helper functions
 export const validateWorkflow = (workflowNodes) => {
   const errors = [];
-  const nodeTypes = workflowNodes.map((node) => node.componentType);
+  const nodeTypes = workflowNodes.map((node) => node.type);
 
   // Check if upload component exists
   if (!nodeTypes.includes("upload")) {
@@ -157,23 +157,50 @@ export const validateWorkflow = (workflowNodes) => {
 
   // Check component order and dependencies
   workflowNodes.forEach((node, index) => {
-    const config = componentConfig[node.componentType];
+    const config = componentConfig[node.type];
     if (config && config.validation) {
       // Check if required components come before this one
       config.validation.requires.forEach((requiredType) => {
-        const requiredIndex = nodeTypes.indexOf(requiredType);
-        if (requiredIndex === -1) {
-          errors.push(
-            `${config.name} requires ${
-              componentConfig[requiredType]?.name || requiredType
-            }`
+        if (Array.isArray(requiredType)) {
+          // Handle OR requirements (any of the types must be present)
+          const anyPresent = requiredType.some((type) =>
+            nodeTypes.includes(type)
           );
-        } else if (requiredIndex > index) {
-          errors.push(
-            `${config.name} must come after ${
-              componentConfig[requiredType]?.name || requiredType
-            }`
-          );
+          if (!anyPresent) {
+            errors.push(
+              `${config.name} requires one of: ${requiredType
+                .map((type) => componentConfig[type]?.name || type)
+                .join(", ")}`
+            );
+          } else {
+            // Check order for the present types
+            requiredType.forEach((type) => {
+              const requiredIndex = nodeTypes.indexOf(type);
+              if (requiredIndex !== -1 && requiredIndex > index) {
+                errors.push(
+                  `${config.name} must come after ${
+                    componentConfig[type]?.name || type
+                  }`
+                );
+              }
+            });
+          }
+        } else {
+          // Handle single requirement
+          const requiredIndex = nodeTypes.indexOf(requiredType);
+          if (requiredIndex === -1) {
+            errors.push(
+              `${config.name} requires ${
+                componentConfig[requiredType]?.name || requiredType
+              }`
+            );
+          } else if (requiredIndex > index) {
+            errors.push(
+              `${config.name} must come after ${
+                componentConfig[requiredType]?.name || requiredType
+              }`
+            );
+          }
         }
       });
     }
@@ -187,7 +214,7 @@ export const canAddComponent = (componentType, existingNodes) => {
   if (!config || !config.validation) return { allowed: true };
   const requires = config.validation.requires;
   if (!requires || requires.length === 0) return { allowed: true };
-  const existingTypes = existingNodes.map((node) => node.componentType);
+  const existingTypes = existingNodes.map((node) => node.type);
 
   // Track missing requirements for error message
   let missing = [];

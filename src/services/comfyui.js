@@ -32,7 +32,7 @@ class ComfyUIService {
   convertNodeToComfyUI(node) {
     const baseNode = {
       id: node.id,
-      type: this.mapNodeTypeToComfyUI(node.componentType),
+      type: this.mapNodeTypeToComfyUI(node.type),
       pos: [node.x, node.y],
       size: { width: 300, height: 200 },
       flags: {},
@@ -44,7 +44,7 @@ class ComfyUIService {
     };
 
     // Add specific properties based on node type
-    switch (node.componentType) {
+    switch (node.type) {
       case "upload":
         return {
           ...baseNode,

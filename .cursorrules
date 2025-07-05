@@ -1,0 +1,323 @@
+# DragUI - Image Processing Workflow Builder
+
+## Project Overview
+
+DragUI is a Vue 3 + Vite application that provides a drag-and-drop interface for creating image processing workflows. It integrates with ComfyUI for AI-powered image processing and features a responsive design that works on desktop, tablet, and mobile devices.
+
+## Architecture
+
+### Tech Stack
+- **Frontend**: Vue 3 with Composition API
+- **Build Tool**: Vite
+- **Styling**: CSS with Flexbox and CSS Grid
+- **Drag & Drop**: Custom implementation with touch support
+- **External Integration**: ComfyUI API for AI processing
+- **State Management**: Vue 3 reactive refs and computed properties
+- **Testing**: Vitest for unit/component tests, Playwright for E2E tests
+
+### Core Components
+
+#### 1. Main Application (`src/App.vue`)
+- **Purpose**: Main application component handling workflow management
+- **Key Features**:
+  - Drag and drop functionality (desktop and mobile)
+  - Zoom controls and canvas management
+  - Workflow validation and execution
+  - Component lifecycle management
+  - ComfyUI integration
+
+#### 2. Dynamic Form System (`src/components/DynamicForm.vue`)
+- **Purpose**: Router component that renders specific form types
+- **Supported Types**: upload, filter, repair, preview
+- **Pattern**: Uses conditional rendering based on component type
+
+#### 3. Specialized Form Components
+- **UploadForm.vue**: Image upload with drag-and-drop and metadata extraction
+- **FilterForm.vue**: White balance and exposure controls
+- **RepairForm.vue**: Detail enhancement controls
+- **PreviewForm.vue**: Image preview with metadata and settings display
+
+#### 4. Configuration System (`src/config/components.js`)
+- **Purpose**: Centralized component configuration
+- **Features**:
+  - Component definitions with fields, validation rules, and metadata
+  - Workflow validation logic
+  - Component dependency management
+  - Order constraints and requirements
+
+#### 5. ComfyUI Service (`src/services/comfyui.js`)
+- **Purpose**: Handles communication with ComfyUI backend
+- **Features**:
+  - Workflow conversion to ComfyUI format
+  - API communication for workflow execution
+  - Image upload handling
+  - Connection status checking
+
+## Key Concepts
+
+### 1. Workflow Nodes
+Each component in the workflow is represented as a "node" with:
+- **Position**: x, y coordinates on the canvas
+- **Component Type**: upload, filter, repair, or preview
+- **Form Data**: User input and configuration
+- **Metadata**: File information, settings, etc.
+
+### 2. Connections
+Nodes are automatically connected in sequence:
+- Upload → Filter → Repair → Preview
+- Connections are drawn as SVG lines
+- Visual feedback shows data flow
+
+### 3. Validation System
+- **Component Dependencies**: Ensures proper order (upload must be first, preview must be last)
+- **Required Components**: Upload and preview are mandatory
+- **Optional Components**: Filter and repair can be added between upload and preview
+- **Real-time Validation**: Errors are shown immediately
+
+### 4. Drag & Drop Implementation
+- **Desktop**: Uses HTML5 Drag and Drop API
+- **Mobile**: Custom touch event handling with visual feedback
+- **File Upload**: Supports drag-and-drop image files directly into upload components
+- **Component Placement**: Components can be dragged from sidebar to canvas
+
+### 5. Responsive Design
+- **Flexible Layout**: Uses CSS Grid and Flexbox
+- **Touch Support**: Optimized for mobile devices
+- **Zoom Controls**: Pan and zoom functionality for large workflows
+- **Adaptive UI**: Components adjust to different screen sizes
+
+## Development Guidelines
+
+### 1. Component Development
+When creating new components:
+- Follow the existing pattern in `DynamicForm.vue`
+- Define configuration in `src/config/components.js`
+- Implement proper validation rules
+- Add touch support for mobile devices
+- Use Vue 3 Composition API
+
+### 2. Form Field Types
+Supported field types in component configuration:
+- `image-upload`: File upload with preview
+- `range`: Slider input with min/max values
+- `textarea`: Multi-line text input
+- `object`: Read-only object display
+- `image`: Read-only image display
+- `settings-list`: Read-only settings summary
+
+### 3. State Management
+- Use Vue 3 `ref()` for reactive state
+- Use `computed()` for derived state
+- Keep state close to where it's used
+- Avoid global state when possible
+
+### 4. Error Handling
+- Validate workflows before execution
+- Show user-friendly error messages
+- Handle ComfyUI connection failures gracefully
+- Provide fallbacks for unsupported features
+
+### 5. Performance Considerations
+- Use throttling for drag operations
+- Implement lazy loading for large images
+- Optimize canvas rendering with requestAnimationFrame
+- Minimize re-renders with proper Vue reactivity
+
+### 6. Testing Guidelines
+- Write unit tests for all new functions and components
+- Add integration tests for workflow scenarios
+- Include E2E tests for user-facing features
+- Maintain test coverage above 80%
+- Use descriptive test names and proper assertions
+- Mock browser APIs (confirm, alert) in tests
+
+## File Structure
+
+```
+src/
+├── App.vue                    # Main application component
+├── main.js                    # Application entry point
+├── style.css                  # Global styles
+├── components/
+│   ├── DynamicForm.vue        # Form router component
+│   ├── UploadForm.vue         # Image upload form
+│   ├── FilterForm.vue         # Image filter form
+│   ├── RepairForm.vue         # Image repair form
+│   └── PreviewForm.vue        # Image preview form
+├── config/
+│   └── components.js          # Component configuration
+└── services/
+    └── comfyui.js             # ComfyUI API service
+
+tests/
+├── unit/                      # Unit tests
+│   ├── config/               # Component configuration tests
+│   └── services/             # ComfyUI service tests
+├── components/               # Component tests
+├── integration/              # Integration tests
+├── e2e/                     # End-to-end tests
+├── utils/                   # Test utilities and helpers
+├── fixtures/                # Test fixtures and mock data
+└── setup.js                 # Test environment setup
+```
+
+## Workflow Rules
+
+### Component Order
+1. **Upload** (required, first)
+2. **Filter** (optional)
+3. **Repair** (optional)
+4. **Preview** (required, last)
+
+### Dependencies
+- Filter and Repair require Upload
+- Preview requires at least Upload
+- Components are automatically connected in sequence
+
+### Validation
+- Upload component must exist and have an image
+- Preview component must be present
+- Components must be in correct order
+- All required fields must be filled
+
+## ComfyUI Integration
+
+### Setup Requirements
+- ComfyUI running on `http://127.0.0.1:8188`
+- Custom nodes for ImageFilter and ImageRepair
+- Proper CORS configuration
+
+### Workflow Conversion
+The app converts internal workflow format to ComfyUI format:
+- Maps component types to ComfyUI node types
+- Converts form data to widget values
+- Maintains node positions and connections
+- Handles metadata and properties
+
+### API Endpoints Used
+- `POST /prompt`: Execute workflow
+- `GET /history`: Get execution history
+- `POST /upload/image`: Upload images
+- `GET /system_stats`: Check connection status
+
+## Common Patterns
+
+### 1. Component Registration
+```javascript
+// In components.js
+export const componentConfig = {
+  newComponent: {
+    name: "New Component",
+    icon: "🔧",
+    type: "new-component",
+    validation: {
+      requires: ["upload"],
+      requiredBy: []
+    },
+    fields: {
+      // field definitions
+    }
+  }
+}
+```
+
+### 2. Form Field Definition
+```javascript
+fields: {
+  fieldName: {
+    type: "range",
+    label: "Field Label",
+    min: 0,
+    max: 100,
+    defaultValue: 50,
+    required: false
+  }
+}
+```
+
+### 3. Validation Rules
+```javascript
+validation: {
+  requires: ["upload"],           // Must have upload component
+  requiredBy: ["preview"],        // Required by preview component
+  order: 2                       // Processing order
+}
+```
+
+### 4. Mobile Touch Handling
+```javascript
+const onTouchStart = (event, component) => {
+  event.preventDefault();
+  // Touch handling logic
+};
+```
+
+## Testing Considerations
+
+### Unit Tests
+- Test component validation logic
+- Test workflow conversion functions
+- Test form field rendering
+- Test mobile touch interactions
+
+### Integration Tests
+- Test ComfyUI API communication
+- Test workflow execution flow
+- Test file upload functionality
+- Test drag and drop operations
+
+### E2E Tests
+- Test complete workflow creation
+- Test mobile device interactions
+- Test error handling scenarios
+- Test responsive design
+
+## Deployment
+
+### Build Process
+```bash
+npm run build    # Create production build
+npm run preview  # Preview production build
+npm run deploy   # Deploy to GitHub Pages
+```
+
+### Environment Requirements
+- Node.js 18+
+- Modern browser with ES6+ support
+- ComfyUI (optional, for AI processing)
+
+## Troubleshooting
+
+### Common Issues
+1. **ComfyUI Connection**: Check if ComfyUI is running on correct port
+2. **CORS Errors**: Ensure ComfyUI allows cross-origin requests
+3. **Mobile Drag**: Test touch events on actual devices
+4. **Image Upload**: Check file size and format restrictions
+5. **Workflow Validation**: Verify component order and dependencies
+6. **Test Failures**: Ensure all dependencies are installed and mocks are properly configured
+
+### Debug Tools
+- Browser developer tools for network requests
+- Vue DevTools for component state
+- Console logging for workflow conversion
+- Network tab for API communication
+- Test UI for debugging test failures
+
+## Future Enhancements
+
+### Potential Features
+- More image processing components
+- Custom node creation
+- Workflow templates
+- Batch processing
+- Advanced validation rules
+- Plugin system
+- Real-time collaboration
+- Cloud storage integration
+
+### Technical Improvements
+- WebGL rendering for large workflows
+- Web Workers for heavy processing
+- Service Worker for offline support
+- Progressive Web App features
+- Advanced caching strategies 

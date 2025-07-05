@@ -51,9 +51,7 @@ export default {
     const mobileDragElement = ref(null);
 
     const hasImageUploaded = computed(() => {
-      const uploadNode = workflowNodes.value.find(
-        (n) => n.componentType === "upload"
-      );
+      const uploadNode = workflowNodes.value.find((n) => n.type === "upload");
       return !!(uploadNode && uploadNode.formData && uploadNode.formData.image);
     });
 
@@ -214,14 +212,10 @@ export default {
     };
 
     const updatePreviewWithWorkflowData = () => {
-      const previewNode = workflowNodes.value.find(
-        (n) => n.componentType === "preview"
-      );
+      const previewNode = workflowNodes.value.find((n) => n.type === "preview");
       if (!previewNode) return;
       // Get upload node image and metadata
-      const uploadNode = workflowNodes.value.find(
-        (n) => n.componentType === "upload"
-      );
+      const uploadNode = workflowNodes.value.find((n) => n.type === "upload");
       if (uploadNode && uploadNode.formData) {
         previewNode.formData = {
           ...previewNode.formData,
@@ -232,11 +226,8 @@ export default {
       // Gather all filter/repair settings
       const settings = [];
       for (const node of workflowNodes.value) {
-        if (
-          node.componentType === "filter" ||
-          node.componentType === "repair"
-        ) {
-          const config = getComponentByType(node.componentType);
+        if (node.type === "filter" || node.type === "repair") {
+          const config = getComponentByType(node.type);
           if (config && config.fields) {
             for (const key in config.fields) {
               if (Object.prototype.hasOwnProperty.call(node.formData, key)) {
@@ -244,7 +235,7 @@ export default {
                   key,
                   value: node.formData[key],
                   label: config.fields[key].label,
-                  type: node.componentType,
+                  type: node.type,
                 });
               }
             }
@@ -273,8 +264,7 @@ export default {
         id: `node-${nextNodeId.value++}`,
         name: componentData.name,
         icon: componentData.icon,
-        type: componentData.type,
-        componentType: componentData.id,
+        type: componentData.id,
         x: x - 75,
         y: y - 50,
         formData: initialFormData,
@@ -283,7 +273,7 @@ export default {
       // If adding repair/filter and preview exists, insert before preview
       if (componentData.id === "repair" || componentData.id === "filter") {
         const previewIdx = workflowNodes.value.findIndex(
-          (n) => n.componentType === "preview"
+          (n) => n.type === "preview"
         );
         if (previewIdx !== -1) {
           workflowNodes.value.splice(previewIdx, 0, newNode);
@@ -561,10 +551,10 @@ export default {
         node.formData = { ...node.formData, ...formData };
         // If preview, filter, or repair node is updated, update preview with workflow data
         if (
-          node.componentType === "preview" ||
-          node.componentType === "filter" ||
-          node.componentType === "repair" ||
-          node.componentType === "upload"
+          node.type === "preview" ||
+          node.type === "filter" ||
+          node.type === "repair" ||
+          node.type === "upload"
         ) {
           setTimeout(updatePreviewWithWorkflowData, 0);
         }
@@ -842,8 +832,8 @@ export default {
               @click.stop
             >
               <DynamicForm
-                :type="node.componentType"
-                :fields="getComponentByType(node.componentType)?.fields || {}"
+                :type="node.type"
+                :fields="getComponentByType(node.type)?.fields || {}"
                 :model-value="node.formData"
                 @update:model-value="
                   (formData) => updateNodeFormData(node.id, formData)
@@ -854,11 +844,10 @@ export default {
                 class="debug-info"
                 style="font-size: 10px; color: #666; padding: 5px"
               >
-                Type: {{ node.componentType }} | Fields:
+                Type: {{ node.type }} | Fields:
                 {{
-                  Object.keys(
-                    getComponentByType(node.componentType)?.fields || {}
-                  ).length
+                  Object.keys(getComponentByType(node.type)?.fields || {})
+                    .length
                 }}
               </div>
             </div>

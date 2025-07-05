@@ -6,8 +6,27 @@
         <span v-if="field.required" class="required">*</span>
       </label>
 
+      <!-- Range Input -->
+      <div v-if="field.type === 'range'" class="range-container">
+        <input
+          :id="key"
+          type="range"
+          :min="field.min"
+          :max="field.max"
+          :step="field.step"
+          :value="modelValue[key] || field.defaultValue"
+          @input="handleRangeChange($event, key)"
+          @mousedown.stop
+          @click.stop
+          class="range-slider"
+        />
+        <span class="range-value">{{
+          (modelValue[key] || field.defaultValue) + "%"
+        }}</span>
+      </div>
+
       <!-- Object Display (Read-only) -->
-      <div v-if="field.type === 'object'" class="object-display">
+      <div v-else-if="field.type === 'object'" class="object-display">
         <pre>{{ JSON.stringify(modelValue[key] || {}, null, 2) }}</pre>
       </div>
 
@@ -93,6 +112,12 @@ export default {
       newValue[key] = event.target.value;
       this.$emit("update:modelValue", newValue);
     },
+
+    handleRangeChange(event, key) {
+      const newValue = { ...this.modelValue };
+      newValue[key] = parseInt(event.target.value);
+      this.$emit("update:modelValue", newValue);
+    },
   },
 };
 </script>
@@ -141,6 +166,48 @@ export default {
   resize: vertical;
   min-height: 80px;
   font-family: inherit;
+}
+
+.range-container {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.range-slider {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #e9ecef;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #667eea;
+  cursor: pointer;
+}
+
+.range-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #667eea;
+  cursor: pointer;
+  border: none;
+}
+
+.range-value {
+  min-width: 40px;
+  text-align: center;
+  font-weight: 600;
+  color: #667eea;
+  font-size: 0.9rem;
 }
 
 .object-display {

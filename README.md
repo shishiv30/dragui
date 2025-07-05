@@ -20,6 +20,7 @@ A responsive Vue 3 + Vite application for creating image processing workflows wi
 - **ComfyUI Integration**: Execute workflows on ComfyUI for AI-powered processing
 - **Validation**: Workflow validation ensures proper component order and dependencies
 - **Responsive Design**: Works on desktop, tablet, and mobile devices
+- **Comprehensive Testing**: Unit, integration, component, and E2E tests
 
 ## Getting Started
 
@@ -57,6 +58,62 @@ Preview the production build:
 ```bash
 npm run preview
 ```
+
+### Testing
+
+The project includes comprehensive testing with multiple testing frameworks:
+
+#### Unit and Component Tests (Vitest)
+
+Run all tests:
+```bash
+npm test
+```
+
+Run tests with UI:
+```bash
+npm run test:ui
+```
+
+Run tests with coverage:
+```bash
+npm run test:coverage
+```
+
+#### End-to-End Tests (Playwright)
+
+Run E2E tests:
+```bash
+npm run test:e2e
+```
+
+Run E2E tests in UI mode:
+```bash
+npx playwright test --ui
+```
+
+#### Test Structure
+
+```
+tests/
+├── unit/                    # Unit tests
+│   ├── config/             # Component configuration tests
+│   └── services/           # ComfyUI service tests
+├── components/             # Component tests
+├── integration/            # Integration tests
+├── e2e/                   # End-to-end tests
+├── utils/                 # Test utilities and helpers
+├── fixtures/              # Test fixtures and mock data
+└── setup.js               # Test environment setup
+```
+
+#### Test Coverage
+
+The test suite covers:
+- **Unit Tests**: Component configuration, validation logic, service methods
+- **Component Tests**: Vue component rendering, props, events, and interactions
+- **Integration Tests**: Workflow management, drag and drop, validation
+- **E2E Tests**: Complete user workflows, mobile responsiveness, error handling
 
 ### Deployment
 
@@ -142,33 +199,9 @@ Visit the live demo: [https://yourusername.github.io/dragui/](https://youruserna
 4. Click "Run Workflow" to execute on ComfyUI
 5. Check ComfyUI for the processed results
 
-### Supported ComfyUI Nodes
+## Development
 
-- **LoadImage**: For image upload
-- **ImageFilter**: For filter operations
-- **ImageRepair**: For repair operations
-- **PreviewImage**: For final preview
-
-## Technical Details
-
-### Tech Stack
-
-- **Vue 3**: Progressive JavaScript framework with Composition API
-- **Vite**: Fast build tool and development server
-- **ComfyUI API**: Integration with ComfyUI for AI processing
-- **File API**: Drag and drop file handling
-- **Canvas API**: Image processing and preview
-
-### Architecture
-
-- **Component-based**: Modular Vue components
-- **Composition API**: Modern Vue 3 composition API
-- **Dynamic Forms**: Configurable form components based on JSON configuration
-- **Responsive CSS**: Flexbox and CSS Grid for layout
-- **SVG Graphics**: Connection lines drawn with SVG
-- **State Management**: Reactive state with Vue 3 refs and computed properties
-
-### File Structure
+### Project Structure
 
 ```
 src/
@@ -176,44 +209,42 @@ src/
 ├── main.js                    # Application entry point
 ├── style.css                  # Global styles
 ├── components/
-│   ├── DynamicForm.vue        # Dynamic form component
-│   └── HelloWorld.vue         # Example component
+│   ├── DynamicForm.vue        # Form router component
+│   ├── UploadForm.vue         # Image upload form
+│   ├── FilterForm.vue         # Image filter form
+│   ├── RepairForm.vue         # Image repair form
+│   └── PreviewForm.vue        # Image preview form
 ├── config/
 │   └── components.js          # Component configuration
 └── services/
     └── comfyui.js             # ComfyUI API service
 ```
 
-### Component Configuration
+### Key Technologies
 
-Components are defined in `src/config/components.js` with:
-- **Fields**: Form fields with types (file, range, textarea, object, image, settings-list)
-- **Validation**: Dependencies and requirements
-- **Order**: Processing order constraints
-- **Metadata**: Icons, descriptions, and behavior
+- **Vue 3**: Composition API for reactive components
+- **Vite**: Fast build tool and development server
+- **CSS Grid/Flexbox**: Responsive layout system
+- **HTML5 Drag & Drop**: Native drag and drop API
+- **Touch Events**: Custom mobile touch handling
+- **ComfyUI API**: External AI processing integration
 
-## Browser Support
+### Testing Strategy
 
-- Chrome (recommended)
-- Firefox
-- Safari
-- Edge
+- **Unit Tests**: Test individual functions and components in isolation
+- **Integration Tests**: Test workflow management and component interactions
+- **Component Tests**: Test Vue component rendering and behavior
+- **E2E Tests**: Test complete user workflows and mobile responsiveness
 
-## Development
+## Contributing
 
-### Adding New Components
-
-1. Define the component in `src/config/components.js`
-2. Add form fields with appropriate types
-3. Define validation rules and dependencies
-4. The DynamicForm component will automatically render the form
-
-### Adding New Field Types
-
-1. Add the field type to the DynamicForm component
-2. Add corresponding CSS styles
-3. Update the component configuration to use the new field type
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Ensure all tests pass
+6. Submit a pull request
 
 ## License
 
-This project is open source and available under the MIT License.
+This project is licensed under the MIT License.
